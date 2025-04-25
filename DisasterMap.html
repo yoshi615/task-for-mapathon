@@ -11,16 +11,43 @@
         }
         canvas {
             display: block;
+            pointer-events: auto;
+            z-index: 0;
+            position: relative;
         }
     </style>
 </head>
 <body>
     <canvas id="globe"></canvas>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.152.2/three.min.js"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/three-globe@2.24.7/dist/three-globe.min.js"></script>
+
+    <!-- データ表示用のコンテナ -->
+    <div id="dataDisplay" style="
+        position: absolute;
+        bottom: 50px;
+        left: 30px;
+        width:250px;
+        z-index: 1000;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 10px;
+        box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.2);
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        display: none; /* 初期状態は非表示 */
+    "></div>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+     <!-- トグル用の画像 -->
+     <img id="toggleButton" src="gear.png" alt="Toggle Filters" style="position: absolute; top: 10px; left: 10px; z-index: 1001; cursor: pointer; width: 70px; height: 70px;">
+
     <script>
         const canvas = document.getElementById('globe');
+        // データ表示用のコンテナを取得
+        const dataDisplay = document.getElementById('dataDisplay');
         const renderer = new THREE.WebGLRenderer({ canvas });
         renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -42,26 +69,143 @@
         scene.add(directionalLight);
 
         // CSVデータを読み込む
-        Papa.parse('added_LatLonData.csv', {
+        Papa.parse('edited_LatLonData.csv', {
             download: true,
             header: true,
             complete: function(results) {
                 const data = results.data;
 
                 // 緯度・経度データをThreeGlobeに追加
-                const pointsData = data.map(row => ({
-                    lat: parseFloat(row.Latitude),
-                    lng: parseFloat(row.Longitude),
-                    size: 0.003, // マーカーのサイズ
-                    color: 'red', // マーカーの色
-                    label: `${row.Country} (${row['Disaster Type']})` // ラベル
-                }));
+                const pointsData = data.map(row => {
+                    const point ={
+                        lat: parseFloat(row.Latitude),
+                        lng: parseFloat(row.Longitude),
+                        size: 0.003, // マーカーのサイズ
+                        color: 'red', // マーカーの色
+                        label: `${row.Country} (${row['Disaster Type']})`, // ラベル
+                        details: row
+                    }
+                    point.userData = row;
+                    return point;
+                });
 
                 globe.pointsData(pointsData)
                     .pointAltitude('size') // マーカーの高さ
-                    .pointColor('color'); // マーカーの色
+                    .pointColor('color') // マーカーの色
+
+                    const raycaster = new THREE.Raycaster();
+                    const mouse = new THREE.Vector2();
+
+                    // マウスクリックイベントを追加
+                    canvas.addEventListener('mousedown', (event) => {
+                        // マウスの位置を正規化 (-1 ～ 1)
+                        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                        // Raycaster を設定
+                        raycaster.setFromCamera(mouse, camera);
+
+                        // Globe の子オブジェクトを取得して交差判定
+                        const intersects = raycaster.intersectObjects(globe.children, true);
+
+                        if (intersects.length > 0) {
+                            const intersectedPoint = intersects[0].object;
+                            const pointData = intersectedPoint.userData; // データを取得
+
+                            if (pointData) {
+                                // データを表示
+                                dataDisplay.innerHTML = `
+                                    <strong>地点のデータ:</strong>
+                                    <ul>
+                                        <li><strong>Country:</strong> ${pointData.Country}</li>
+                                        <li><strong>Latitude:</strong> ${pointData.Latitude}</li>
+                                        <li><strong>Longitude:</strong> ${pointData.Longitude}</li>
+                                        <li><strong>Total Deaths:</strong> ${pointData['Total Deaths'] || 'Unknown'}</li>
+                                        <li><strong>date:</strong> ${pointData['Start Month'] || 'Unknown'},${pointData['Start Day'] || 'Unknown'},${pointData['Start Year'] || 'Unknown'}</li>
+                                    </ul>
+                                `;
+                                dataDisplay.style.display = 'block'; // 表示する
+                            }
+                        }
+                    });
             }
         });
+
+        // Create filter checkboxes
+        const disasterTypes = ['Earthquake', 'Flood', 'Storm', 'Wildfire', 'Drought', 'Road', 'Fire', 'Extreme temperature', 'Mass movement', 'Water', 'Explosion', 'Collapse', 'Air', 'Gas leak', 'Rail', 'Epidemic', 'Volcanic activity', 'Miscellaneous accident (general)','Glacial lake outburst flood']; // Add more types as needed
+        const checkboxContainer = document.createElement('div');
+        checkboxContainer.style.position = 'absolute';
+        checkboxContainer.style.top = '90px';
+        checkboxContainer.style.left = '20px';
+        checkboxContainer.style.zIndex = '1000';
+        checkboxContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+        checkboxContainer.style.padding = '10px';
+        checkboxContainer.style.borderRadius = '5px';
+        checkboxContainer.style.display = 'none';
+
+        const activeFilters = new Set(disasterTypes); // Initially show all types
+
+        disasterTypes.forEach(type => {
+            const label = document.createElement('label');
+            label.style.display = 'block';
+            label.style.marginBottom = '5px';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = true; // Initially checked
+            checkbox.style.marginRight = '5px';
+            checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                activeFilters.add(type);
+            } else {
+                activeFilters.delete(type);
+            }
+            updateFilteredDisasters();
+            });
+
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(type));
+            checkboxContainer.appendChild(label);
+        });
+
+        document.body.appendChild(checkboxContainer);
+
+        // トグルボタンのクリックイベント
+        const toggleButton = document.getElementById('toggleButton');
+        toggleButton.addEventListener('click', () => {
+            if (checkboxContainer.style.display === 'none') {
+                checkboxContainer.style.display = 'block';
+            } else {
+                checkboxContainer.style.display = 'none';
+            }
+        });
+
+        // Function to update filtered disasters
+        function updateFilteredDisasters() {
+            Papa.parse('edited_LatLonData.csv', {
+            download: true,
+            header: true,
+            complete: function(results) {
+                const data = results.data;
+
+                const filteredData = data.filter(row => activeFilters.has(row['Disaster Type']));
+
+                const pointsData = filteredData.map(row => ({
+                    lat: parseFloat(row.Latitude),
+                    lng: parseFloat(row.Longitude),
+                    size: 0.003,
+                    color: 'red',
+                    label: `${row.Country} (${row['Disaster Type']})`,
+                    details: row
+                }));
+
+                globe.pointsData(pointsData);
+            }
+            });
+        }
+
+        // Initial call to display all disasters
+        updateFilteredDisasters();
 
         function animate() {
             requestAnimationFrame(animate);
