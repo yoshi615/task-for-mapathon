@@ -106,7 +106,7 @@
                         raycaster.setFromCamera(mouse, camera);
 
                         // Globe の子オブジェクトを取得して交差判定
-                        const intersects = raycaster.intersectObjects(globe.children, true);
+                        const intersects = raycaster.intersectObjects(globe.children[0].children, true);
 
                         if (intersects.length > 0) {
                             const intersectedPoint = intersects[0].object;
@@ -180,6 +180,8 @@
             }
         });
 
+        let pointsData = [];
+
         // Function to update filtered disasters
         function updateFilteredDisasters() {
             Papa.parse('edited_LatLonData.csv', {
@@ -190,7 +192,7 @@
 
                 const filteredData = data.filter(row => activeFilters.has(row['Disaster Type']));
 
-                const pointsData = filteredData.map(row => ({
+                pointsData = filteredData.map(row => ({
                     lat: parseFloat(row.Latitude),
                     lng: parseFloat(row.Longitude),
                     size: 0.003,
@@ -200,6 +202,8 @@
                 }));
 
                 globe.pointsData(pointsData);
+
+                console.log(pointsData)
             }
             });
         }
@@ -258,6 +262,12 @@
         canvas.addEventListener('mouseleave', () => {
             isDragging = false;
         });
+
+        console.log(globe.children); // 地球儀の子オブジェクトを確認
+
+        globe.pointsData(pointsData);
+
+        console.log(pointsData); // ポイントデータを確認
     </script>
 </body>
 </html>
